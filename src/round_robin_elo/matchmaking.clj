@@ -21,59 +21,47 @@
                   prefs)
          (concat prefs opponents-in-low-pref)))))
 
-(defn make-matcher
-  "Takes a player and list of opponents, and returns a matcher in the
-   form of [player opponents] where opponents are in order of
-   preference."
-  ([player opponents]
-   [player (preference-list player opponents)])
-  ([player opponents previous-opponents]
-   [player (preference-list player opponents previous-opponents)]))
+(defn reject
+  "Takes boy-preferences map and a boy, and returns boy-preferences
+   map with boy's top choice removed."
+  [boy-preferences boy]
+  (update boy-preferences boy rest))
 
-(defn player
-  "Returns the player part of a suitor or girl."
-  [matcher]
-  (first matcher))
+(defn choose-favorite-boy
+  "Takes a girl, collection of boys, girl-preferences map, and
+   boy-preferences map, and chooses her most preferred boy, rejecting
+   the others."
+  [girl boys girl-preferences boy-preferences]
+  (let [girl-choices (->> (girl-preferences girl)
+                          (filter (set boys)))]
+    (reduce reject boy-preferences (rest girl-choices))))
 
-(defn preferences
-  "Returns the preferences part of a suitor or girl."
-  [matcher]
-  (second matcher))
-
-(defn remove-top-choice
-  "Takes a suitor - vector of [player preferences] - and returns the
-   matcher with the first preference removed."
-  [suitor]
-  (update suitor 1 rest))
-
-(defn make-girl-choice
-  "Takes a girl and collection of suitors, and returns the suitors
-   after girl chooses her most preferred. All but the chosen suitor
-   will have girl removed from their preference list."
-  [girl suitors]
-  (let [suitor-map (zipmap (map player suitors) suitors)
-        girl-prefs (->> (preferences girl)
-                        (filter (set (keys suitor-map)))
-                        (replace suitor-map))]
-    (cons (first girl-prefs) (map remove-top-choice (rest girl-prefs)))))
+(defn choose-girls
+  [boy-preferences]
+  (reduce (fn [choices [boy prefs]]
+            (update choices (first prefs) (fnil conj []) boy))
+          {}
+          boy-preferences))
 
 (defn matchmaking-finished?
-  "Takes matches - map of {girl [suitor]}. Returns true if
-   matchmaking is finished - every girl has at most 1 suitor."
+  "Takes matches - map of {girl [boy]}. Returns true if
+   matchmaking is finished - every girl has at most 1 boy."
   [matches]
   (every? (comp (partial >= 1) count) (vals matches)))
 
 (defn find-matches
-  "Takes a collection of suitors and collection of girls, where each
-   suitor and girl is a vector of [player preferences], and runs the
-   mating algorithm to find best matches. Returns collection of [player
-   player] matches."
-  [suitors girls]
-  (let [girl-map (zipmap (map player girls) girls)
-        girl-suitors (group-by (comp first preferences) suitors)]
-    (if (matchmaking-finished? girl-suitors)
-      (map (juxt first (comp player first second)) girl-suitors)
-      (find-matches (mapcat make-girl-choice
-                            (replace girl-map (keys girl-suitors))
-                            (vals girl-suitors))
-                    girls))))
+  "Takes a collection of \"girl\" players and collection of \"boy\"
+   players, optional preference lists for girls and boys, and runs
+   mating algorithm to find best matches. Returns collection of
+   [player player] matches."
+  ([girls boys]
+   (find-matches girls boys (preferences girls boys) (preferences boys girls)))
+  ([girls boys girl-preferences boy-preferences]
+   (let [girls-suitors (choose-girls boy-preferences)]
+     (if (matchmaking-finished? girls-suitors)
+       (map (comp set (juxt key (comp first val))) girls-suitors)
+       (find-matches boys girls girl-preferences
+                     (reduce (fn [boy-prefs [girl boys]]
+                               (choose-favorite-boy girl boys girl-preferences boy-prefs))
+                             boy-preferences
+                             girls-suitors))))))
